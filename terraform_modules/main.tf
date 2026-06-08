@@ -16,6 +16,8 @@ resource "aws_instance" "awsseeker01" {
   ami           = "ami-0236922087fa98b6e"
   instance_type = "t2.micro"
   vpc_security_group_ids = "sg-0c0ec6b46c87440aa"
+  aws_access_key = var.AWS_AKID
+  aws_secret_key = var.AWS_SAK
 
   tags = {
     Name = "awsseeker01"
