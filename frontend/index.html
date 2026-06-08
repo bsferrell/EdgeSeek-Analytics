@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeSeek Ingestion Portal</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; color: #333; margin: 40px; }
+        .container { max-width: 500px; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin: auto; }
+        h2 { color: #1a365d; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        label { font-weight: bold; display: block; margin: 15px 0 5px; color: #4a5568; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: #3182ce; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: background 0.2s; }
+        button:hover { background-color: #2b6cb0; }
+        #status { margin-top: 20px; padding: 15px; border-radius: 4px; display: none; font-size: 14px; }
+        .success { background-color: #c6f6d5; color: #22543d; border: 1px solid #9ae6b4; }
+        .error { background-color: #fed7d7; color: #742a2a; border: 1px solid #feb2b2; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>EdgeSeek Athletic Portal</h2>
+    <p style="font-size: 13px; color: #718096;">Secure Ingestion Perimeter &bull; Live Telemetry Upload</p>
+    
+    <form id="uploadForm">
+        <label for="institution">Institution / School Name</label>
+        <input type="text" id="institution" placeholder="e.g., Oak-Grove-High" required>
+
+        <label for="device">Telemetry Device Type</label>
+        <select id="device">
+            <option value="Garmin">Garmin Connect API (.json)</option>
+            <option value="Whoop">Whoop Enterprise (.csv)</option>
+            <option value="Polar">Polar Team Pro (.csv)</option>
+        </select>
+
+        <label for="telemetryFile">Select Athlete Data File</label>
+        <input type="file" id="telemetryFile" accept=".json,.csv" required>
+
+        <button type="submit" id="submitBtn">Securely Upload Data</button>
+    </form>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    // PASTE YOUR API GATEWAY ENDPOINT HERE AFTER RUNNING TERRAFORM APPLY
+    const API_GATEWAY_URL = "YOUR_API_GATEWAY_URL_FROM_TERRAFORM/request-upload";
+
+    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const statusDiv = document.getElementById('status');
+        const submitBtn = document.getElementById('submitBtn');
+        const institution = document.getElementById('institution').value.replace(/\s+/g, '-');
+        const fileInput = document.getElementById('telemetryFile');
+        const file = fileInput.files[0];
+
+        statusDiv.style.display = 'block';
+        statusDiv.className = 'success';
+        statusDiv.innerText = "Requesting secure single-use upload token from EdgeSeek security perimeter...";
+        submitBtn.disabled = true;
+
+        try {
+            // Step 1: Request the Presigned URL from Lambda via API Gateway
+            const response = await fetch(API_GATEWAY_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    institution: institution,
+                    filename: file.name
+                })
+            });
+
+            if (!response.ok) throw new Error('Security check or API Gateway invocation failed.');
+            const data = await response.json();
+            
+            statusDiv.innerText = "Token granted. Executing zero-trust direct-to-S3 bypass upload...";
+
+            // Step 2: Use the presigned URL to PUT the file directly into your private S3 bucket
+            const uploadResponse = await fetch(data.upload_url, {
+                method: 'PUT',
+                headers: { 'Content-Type': file.type },
+                body: file
+            });
+
+            if (uploadResponse.ok) {
+                statusDiv.className = 'success';
+                statusDiv.innerHTML = `<strong>Success!</strong> Data ingested successfully into isolated folder path:<br><small>${data.destination_path}</small>`;
+                document.getElementById('uploadForm').reset();
+            } else {
+                throw new Error('S3 bucket policy rejected the direct upload stream.');
+            }
+        } catch (error) {
+            statusDiv.className = 'error';
+            statusDiv.innerText = "Execution Halted: " + error.message;
+        } finally {
+            submitBtn.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>
